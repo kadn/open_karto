@@ -833,7 +833,7 @@ namespace karto
      */
     virtual kt_int32s GridIndex(const Vector2<kt_int32s>& rGrid, kt_bool boundaryCheck = true) const
     {
-      kt_int32s x = rGrid.GetX() + m_Roi.GetX();
+      kt_int32s x = rGrid.GetX() + m_Roi.GetX();   // m_Roi.GetX()返回 左下角在世界坐标系中的坐标
       kt_int32s y = rGrid.GetY() + m_Roi.GetY();
 
       return Grid<kt_int8u>::GridIndex(Vector2<kt_int32s>(x, y), boundaryCheck);

@@ -2903,7 +2903,7 @@ namespace karto
     inline Pose2 InverseTransformPose(const Pose2& rSourcePose)
     {
       Pose2 newPosition = m_InverseRotation * (rSourcePose - m_Transform);
-      kt_double angle = math::NormalizeAngle(rSourcePose.GetHeading() - m_Transform.GetHeading());
+      kt_double angle = math::NormalizeAngle(rSourcePose.GetHeading() - m_Transform.GetHeading());  //把角度变到 -pi  到  pi之间的数值
 
       // components of transform
       return Pose2(newPosition.GetPosition(), angle);
@@ -2933,7 +2933,7 @@ namespace karto
       Pose2 newPosition;
       if (rPose1.GetX() != 0.0 || rPose1.GetY() != 0.0)
       {
-        newPosition = rPose2 - m_Rotation * rPose1;
+        newPosition = rPose2 - m_Rotation * rPose1;      // 计算出 pose2 在pose1坐标系下的位置(pose1的坐标系相对世界坐标系有平移rPose1.GetPosition()，有旋转rPose1.GetHeading() )
       }
       else
       {
@@ -6411,10 +6411,10 @@ namespace karto
       //////////////////////////////////////////////////////
       // convert points into local coordinates of scan pose
 
-      const PointVectorDouble& rPointReadings = pScan->GetPointReadings();
+      const PointVectorDouble& rPointReadings = pScan->GetPointReadings();  //rPointReadings是每一个激光数据点相对于激光位置的二维坐标
 
       // compute transform to scan pose
-      Transform transform(pScan->GetSensorPose());
+      Transform transform(pScan->GetSensorPose());   //得到 pscan  -> transform，形式变了，内容没变
 
       Pose2Vector localPoints;
       const_forEach(PointVectorDouble, &rPointReadings)

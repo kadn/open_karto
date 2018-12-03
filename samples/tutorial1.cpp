@@ -15,7 +15,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <OpenKarto/Mapper.h>
+#include <open_karto/Mapper.h>
 
 /**
  * Sample code to demonstrate karto map creation
@@ -30,8 +30,8 @@ karto::Dataset* CreateMap(karto::Mapper* pMapper)
   // Create a laser range finder device - use SmartPointer to let karto subsystem manage memory.
   karto::Name name("laser0");
   karto::LaserRangeFinder* pLaserRangeFinder = karto::LaserRangeFinder::CreateLaserRangeFinder(karto::LaserRangeFinder_Custom, name);
-  pLaserRangeFinder->SetOffsetPose(karto::Pose2(1.0, 0.0, 0.0));
-  pLaserRangeFinder->SetAngularResolution(karto::math::DegreesToRadians(0.5));
+  pLaserRangeFinder->SetOffsetPose(karto::Pose2(1.0, 0.0, 0.0));   //这里说了scan laser0相对于车中心的位置。
+  pLaserRangeFinder->SetAngularResolution(karto::math::DegreesToRadians(0.5));  //180度的laser，分辨率是0.5，就会有361个光束
   pLaserRangeFinder->SetRangeThreshold(12.0);
 
   pDataset->Add(pLaserRangeFinder);

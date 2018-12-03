@@ -366,7 +366,7 @@ namespace karto
     // set scan pose to be center of grid
 
     // 1. get scan position
-    Pose2 scanPose = pScan->GetSensorPose();
+    Pose2 scanPose = pScan->GetSensorPose();   // 第二个数据进来时，scanPose的位置是(1,1) angle是 90度
 
     // scan has no readings; cannot do scan matching
     // best guess of pose is based off of adjusted odometer reading
@@ -383,10 +383,10 @@ namespace karto
     }
 
     // 2. get size of grid
-    Rectangle2<kt_int32s> roi = m_pCorrelationGrid->GetROI();
+    Rectangle2<kt_int32s> roi = m_pCorrelationGrid->GetROI();   // 这个是栅格地图，10（雷达范围）+0.3(滑窗范围)
 
     // 3. compute offset (in meters - lower left corner)
-    Vector2<kt_double> offset;
+    Vector2<kt_double> offset;  //offset是栅格左下角在世界坐标系中的位置
     offset.SetX(scanPose.GetX() - (0.5 * (roi.GetWidth() - 1) * m_pCorrelationGrid->GetResolution()));
     offset.SetY(scanPose.GetY() - (0.5 * (roi.GetHeight() - 1) * m_pCorrelationGrid->GetResolution()));
 
@@ -396,9 +396,9 @@ namespace karto
     ///////////////////////////////////////
 
     // set up correlation grid
-    AddScans(rBaseScans, scanPose.GetPosition());
+    AddScans(rBaseScans, scanPose.GetPosition());  //获得了Roi里栅格状态
 
-    // compute how far to search in each direction
+    // compute how far to search in each direction   //coarseSearchOffset 是一个坐标
     Vector2<kt_double> searchDimensions(m_pSearchSpaceProbs->GetWidth(), m_pSearchSpaceProbs->GetHeight());
     Vector2<kt_double> coarseSearchOffset(0.5 * (searchDimensions.GetX() - 1) * m_pCorrelationGrid->GetResolution(),
                                           0.5 * (searchDimensions.GetY() - 1) * m_pCorrelationGrid->GetResolution());
@@ -407,7 +407,7 @@ namespace karto
     Vector2<kt_double> coarseSearchResolution(2 * m_pCorrelationGrid->GetResolution(),
                                               2 * m_pCorrelationGrid->GetResolution());
 
-    // actual scan-matching
+    // actual scan-matching   //找到了 最好的位姿使得response最大
     kt_double bestResponse = CorrelateScan(pScan, scanPose, coarseSearchOffset, coarseSearchResolution,
                                            m_pMapper->m_pCoarseSearchAngleOffset->GetValue(),
                                            m_pMapper->m_pCoarseAngleResolution->GetValue(),
@@ -452,7 +452,7 @@ namespace karto
       bestResponse = CorrelateScan(pScan, rMean, fineSearchOffset, fineSearchResolution,
                                    0.5 * m_pMapper->m_pCoarseAngleResolution->GetValue(),
                                    m_pMapper->m_pFineSearchAngleOffset->GetValue(),
-                                   doPenalize, rMean, rCovariance, true);
+                                   doPenalize, rMean, rCovariance, true);  //这里的true会让程序计算角度方差
     }
 
 #ifdef KARTO_DEBUG
@@ -488,7 +488,7 @@ namespace karto
   {
     assert(searchAngleResolution != 0.0);
 
-    // setup lookup arrays
+    // setup lookup arrays    //这个函数把lookuparray的角度写好了。每一个lookuparry存储了每一个激光数据(总共361个)在角度滑窗之后的结果，还没有xy的滑窗
     m_pGridLookup->ComputeOffsets(pScan, rSearchCenter.GetHeading(), searchAngleOffset, searchAngleResolution);
 
     // only initialize probability grid if computing positional covariance (during coarse match)
@@ -526,9 +526,9 @@ namespace karto
     // calculate pose response array size
     kt_int32u nAngles = static_cast<kt_int32u>(math::Round(searchAngleOffset * 2.0 / searchAngleResolution) + 1);
 
-    kt_int32u poseResponseSize = static_cast<kt_int32u>(xPoses.size() * yPoses.size() * nAngles);
+    kt_int32u poseResponseSize = static_cast<kt_int32u>(xPoses.size() * yPoses.size() * nAngles);  // 位置、角度的变化
 
-    // allocate array
+    // allocate array   //Pose2包含了 x,y,theta. 滑窗的结果存储在pPoseResponse中
     std::pair<kt_double, Pose2>* pPoseResponse = new std::pair<kt_double, Pose2>[poseResponseSize];
 
     Vector2<kt_int32s> startGridPoint = m_pCorrelationGrid->WorldToGrid(Vector2<kt_double>(rSearchCenter.GetX()
@@ -547,7 +547,8 @@ namespace karto
         kt_double newPositionX = rSearchCenter.GetX() + x;
         kt_double squareX = math::Square(x);
 
-        Vector2<kt_int32s> gridPoint = m_pCorrelationGrid->WorldToGrid(Vector2<kt_double>(newPositionX, newPositionY));
+        //由 x,y得出一个 gridIndex
+        Vector2<kt_int32s> gridPoint = m_pCorrelationGrid->WorldToGrid(Vector2<kt_double>(newPositionX, newPositionY));  
         kt_int32s gridIndex = m_pCorrelationGrid->GridIndex(gridPoint);
         assert(gridIndex >= 0);
 
@@ -556,7 +557,7 @@ namespace karto
         for (kt_int32u angleIndex = 0; angleIndex < nAngles; angleIndex++)
         {
           angle = startAngle + angleIndex * searchAngleResolution;
-
+          //由 angleIndex 和 gridIndex得出response
           kt_double response = GetResponse(angleIndex, gridIndex);
           if (doPenalize && (math::DoubleEqual(response, 0.0) == false))
           {
@@ -610,7 +611,7 @@ namespace karto
       }
     }
 
-    // average all poses with same highest response
+    // average all poses with same highest response   //最大的响应值对应的位姿可能有很多种
     Vector2<kt_double> averagePosition;
     kt_double thetaX = 0.0;
     kt_double thetaY = 0.0;
@@ -625,7 +626,7 @@ namespace karto
         thetaX += cos(heading);
         thetaY += sin(heading);
 
-        averagePoseCount++;
+        averagePoseCount++;                        //对 x,y进行平均
       }
     }
 
@@ -653,7 +654,7 @@ namespace karto
 #endif
 
     if (!doingFineMatch)
-    {
+    {  //计算协方差
       ComputePositionalCovariance(averagePose, bestResponse, rSearchCenter, rSearchSpaceOffset,
                                   rSearchSpaceResolution, searchAngleResolution, rCovariance);
     }
@@ -856,12 +857,12 @@ namespace karto
    */
   void ScanMatcher::AddScans(const LocalizedRangeScanVector& rScans, Vector2<kt_double> viewPoint)
   {
-    m_pCorrelationGrid->Clear();
+    m_pCorrelationGrid->Clear();   //把栅格地图的所有值(0,100,255)置为0
 
     // add all scans to grid
-    const_forEach(LocalizedRangeScanVector, &rScans)
+    const_forEach(LocalizedRangeScanVector, &rScans)   // rScans 可能是 running scans 或者 相邻的scans或者 闭环产生的scans
     {
-      AddScan(*iter, viewPoint);
+      AddScan(*iter, viewPoint);    
     }
   }
 
@@ -873,12 +874,12 @@ namespace karto
    */
   void ScanMatcher::AddScan(LocalizedRangeScan* pScan, const Vector2<kt_double>& rViewPoint, kt_bool doSmear)
   {
-    PointVectorDouble validPoints = FindValidPoints(pScan, rViewPoint);
+    PointVectorDouble validPoints = FindValidPoints(pScan, rViewPoint);   //找到pscan在 rviewpoint附近一个圆形范围内的栅格地图之内的点，记为有效的点
 
     // put in all valid points
     const_forEach(PointVectorDouble, &validPoints)
     {
-      Vector2<kt_int32s> gridPoint = m_pCorrelationGrid->WorldToGrid(*iter);
+      Vector2<kt_int32s> gridPoint = m_pCorrelationGrid->WorldToGrid(*iter);  //把 point的位置变为 在栅格地图上的坐标，栅格地图的原点是左下角
       if (!math::IsUpTo(gridPoint.GetX(), m_pCorrelationGrid->GetROI().GetWidth()) ||
           !math::IsUpTo(gridPoint.GetY(), m_pCorrelationGrid->GetROI().GetHeight()))
       {
@@ -886,10 +887,10 @@ namespace karto
         continue;
       }
 
-      int gridIndex = m_pCorrelationGrid->GridIndex(gridPoint);
+      int gridIndex = m_pCorrelationGrid->GridIndex(gridPoint);   //二维变为一维索引
 
       // set grid cell as occupied
-      if (m_pCorrelationGrid->GetDataPointer()[gridIndex] == GridStates_Occupied)
+      if (m_pCorrelationGrid->GetDataPointer()[gridIndex] == GridStates_Occupied)  //查询grid cell状态
       {
         // value already set
         continue;
@@ -1165,7 +1166,7 @@ namespace karto
 
     // link to previous scan
     kt_int32s previousScanNum = pScan->GetStateId() - 1;
-    if (pSensorManager->GetLastScan(rSensorName) != NULL)
+    if (pSensorManager->GetLastScan(rSensorName) != NULL)   //添加边的第一种方式，总共有三种方式
     {
       assert(previousScanNum >= 0);
       LinkScans(pSensorManager->GetScan(rSensorName, previousScanNum), pScan, pScan->GetSensorPose(), rCovariance);
@@ -1186,7 +1187,7 @@ namespace karto
 
         // skip if candidate device is the same or other device has no scans
         if ((rCandidateSensorName == rSensorName) || (pSensorManager->GetScans(rCandidateSensorName).empty()))
-        {
+        { 
           continue;
         }
 
@@ -1195,7 +1196,7 @@ namespace karto
         kt_double response = m_pMapper->m_pSequentialScanMatcher->MatchScan(pScan,
                                                                   pSensorManager->GetScans(rCandidateSensorName),
                                                                   bestPose, covariance);
-        LinkScans(pScan, pSensorManager->GetScan(rCandidateSensorName, 0), bestPose, covariance);
+        LinkScans(pScan, pSensorManager->GetScan(rCandidateSensorName, 0), bestPose, covariance);  //第二种添加边的方式
 
         // only add to means and covariances if response was high "enough"
         if (response > m_pMapper->m_pLinkMatchMinimumResponseFine->GetValue())
@@ -1211,7 +1212,7 @@ namespace karto
       Pose2 scanPose = pScan->GetSensorPose();
       means.push_back(scanPose);
       covariances.push_back(rCovariance);
-      LinkChainToScan(pSensorManager->GetRunningScans(rSensorName), pScan, scanPose, rCovariance);
+      LinkChainToScan(pSensorManager->GetRunningScans(rSensorName), pScan, scanPose, rCovariance);  //第三种添加边的方式
     }
 
     // link to other near chains (chains that include new scan are invalid)
@@ -1558,7 +1559,7 @@ namespace karto
     // possible loop closure chain should not include close scans that have a
     // path of links to the scan of interest
     const LocalizedRangeScanVector nearLinkedScans =
-          FindNearLinkedScans(pScan, m_pMapper->m_pLoopSearchMaximumDistance->GetValue());
+          FindNearLinkedScans(pScan, m_pMapper->m_pLoopSearchMaximumDistance->GetValue());  //从所有帧中找离当前帧最近的帧，exclude these
 
     kt_int32u nScans = static_cast<kt_int32u>(m_pMapper->m_pMapperSensorManager->GetScans(rSensorName).size());
     for (; rStartNum < nScans; rStartNum++)
@@ -1568,7 +1569,7 @@ namespace karto
       Pose2 candidateScanPose = pCandidateScan->GetReferencePose(m_pMapper->m_pUseScanBarycenter->GetValue());
 
       kt_double squaredDistance = candidateScanPose.GetPosition().SquaredDistance(pose.GetPosition());
-      if (squaredDistance < math::Square(m_pMapper->m_pLoopSearchMaximumDistance->GetValue()) + KT_TOLERANCE)
+      if (squaredDistance < math::Square(m_pMapper->m_pLoopSearchMaximumDistance->GetValue()) + KT_TOLERANCE)  //从头开始找，如果帧距离当前帧位置在m_pLoopSearchMaximumDistance（4m）之内，就先记录一下
       {
         // a linked scan cannot be in the chain
         if (find(nearLinkedScans.begin(), nearLinkedScans.end(), pCandidateScan) != nearLinkedScans.end())
@@ -1583,7 +1584,7 @@ namespace karto
       else
       {
         // return chain if it is long "enough"
-        if (chain.size() >= m_pMapper->m_pLoopMatchMinimumChainSize->GetValue())
+        if (chain.size() >= m_pMapper->m_pLoopMatchMinimumChainSize->GetValue())  //4m之内的不是nearLinkedScans的帧如果大于10帧，就作为可能的chain
         {
           return chain;
         }
@@ -2257,7 +2258,7 @@ namespace karto
                                             m_pMapperSensorManager->GetRunningScans(pScan->GetSensorName()),
                                                                                     bestPose,
                                                                                     covariance);
-        pScan->SetSensorPose(bestPose);
+        pScan->SetSensorPose(bestPose);   //出来了最好的位置
       }
 
       // add scan to buffer and assign id

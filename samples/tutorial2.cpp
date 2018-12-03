@@ -15,9 +15,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "SpaSolver.h"
+#include "spa_solver.h"
 
-#include <OpenKarto/Mapper.h>
+#include <open_karto/Mapper.h>
 
 /**
  * Sample code to demonstrate karto map creation
