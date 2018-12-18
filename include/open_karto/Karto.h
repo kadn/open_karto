@@ -5249,7 +5249,7 @@ namespace karto
     inline Pose2 GetReferencePose(kt_bool useBarycenter) const
     {
       boost::shared_lock<boost::shared_mutex> lock(m_Lock);
-      if (m_IsDirty)
+      if (m_IsDirty)  //如果当前帧的数据没有用于LocalizedRangeScan的信息更新，那么m_IsDirty就是true，就需要更新一下
       {
         // throw away constness and do an update!
         lock.unlock();
@@ -5266,7 +5266,7 @@ namespace karto
      */
     inline Pose2 GetSensorPose() const
     {
-      return GetSensorAt(m_CorrectedPose);
+      return GetSensorAt(m_CorrectedPose);   //基于修正的robot位置以及之前设定的laser scan相对于 robot的位置来求出laser scan在地图中的位置
     }
 
     /**
@@ -5369,7 +5369,7 @@ namespace karto
           if (!math::InRange(rangeReading, pLaserRangeFinder->GetMinimumRange(), rangeThreshold))
           {
             kt_double angle = scanPose.GetHeading() + minimumAngle + beamNum * angularResolution;
-
+            //将laser scan的读入数据转换成了在地图上的坐标
             Vector2<kt_double> point;
             point.SetX(scanPose.GetX() + (rangeReading * cos(angle)));
             point.SetY(scanPose.GetY() + (rangeReading * sin(angle)));
@@ -5379,14 +5379,14 @@ namespace karto
           }
 
           kt_double angle = scanPose.GetHeading() + minimumAngle + beamNum * angularResolution;
-
+          //将laser scan的读入数据转换成了在地图上的坐标
           Vector2<kt_double> point;
           point.SetX(scanPose.GetX() + (rangeReading * cos(angle)));
           point.SetY(scanPose.GetY() + (rangeReading * sin(angle)));
 
           m_PointReadings.push_back(point);
           m_UnfilteredPointReadings.push_back(point);
-
+          //将laser scan扫描到的点的世界坐标加在一起，然后求取平均值，就是m_BarycenterPose的结果
           rangePointsSum += point;
         }
 
@@ -5404,10 +5404,11 @@ namespace karto
 
         // calculate bounding box of scan
         m_BoundingBox = BoundingBox2();
+        //m_BoundingBox本身是没有范围的，通过Add函数得出一个能把这个点框进去的范围，总共有nPoints个点，那么就形成了一个刚好将m_PointReadings都能包含进去的BoundingBox
         m_BoundingBox.Add(scanPose.GetPosition());
         forEach(PointVectorDouble, &m_PointReadings)
         {
-          m_BoundingBox.Add(*iter);
+          m_BoundingBox.Add(*iter);   //Add函数会不断地改变 m_BoundingBox的包含范围
         }
       }
 

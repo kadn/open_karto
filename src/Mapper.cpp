@@ -384,6 +384,7 @@ namespace karto
 
     // 2. get size of grid
     Rectangle2<kt_int32s> roi = m_pCorrelationGrid->GetROI();   // 这个是栅格地图，10（雷达范围）+0.3(滑窗范围)
+    std::cout << "width : " <<roi.GetWidth() << " height : " << roi.GetHeight() << " center : " << roi.GetCenter().GetX() << " " << roi.GetCenter().GetY() << std::endl;
 
     // 3. compute offset (in meters - lower left corner)
     Vector2<kt_double> offset;  //offset是栅格左下角在世界坐标系中的位置
@@ -1018,8 +1019,8 @@ namespace karto
   ////////////////////////////////////////////////////////////////////////////////////////
   ////////////////////////////////////////////////////////////////////////////////////////
   ////////////////////////////////////////////////////////////////////////////////////////
-
-  template<typename T>
+  // 深度优先（DFS）广度优先（BFS）算法可以参考这篇文章（http://www.cnblogs.com/skywang12345/p/3711483.html）
+  template<typename T>   
   class BreadthFirstTraversal : public GraphTraversal<T>
   {
   public:
@@ -1059,20 +1060,20 @@ namespace karto
         Vertex<T>* pNext = toVisit.front();
         toVisit.pop();
 
-        if (pVisitor->Visit(pNext))
+        if (pVisitor->Visit(pNext))     //访问第一个节点，如果在距离阈值之内
         {
           // vertex is valid, explore neighbors
           validVertices.push_back(pNext);
 
-          std::vector<Vertex<T>*> adjacentVertices = pNext->GetAdjacentVertices();
+          std::vector<Vertex<T>*> adjacentVertices = pNext->GetAdjacentVertices();  //之前成功认为这一帧好，现在就要得到这一帧的相邻边
           forEach(typename std::vector<Vertex<T>*>, &adjacentVertices)
           {
             Vertex<T>* pAdjacent = *iter;
 
             // adjacent vertex has not yet been seen, add to queue for processing
-            if (seenVertices.find(pAdjacent) == seenVertices.end())
+            if (seenVertices.find(pAdjacent) == seenVertices.end())  //如果没找到，也就是没有访问过
             {
-              toVisit.push(pAdjacent);
+              toVisit.push(pAdjacent);    //通过这个push操作使得queue不断增加数据，直到所有连接关系被访问过，最终使用validVertices来作为相邻结果
               seenVertices.insert(pAdjacent);
             }
           }
@@ -1083,16 +1084,16 @@ namespace karto
       forEach(typename std::vector<Vertex<T>*>, &validVertices)
       {
         objects.push_back((*iter)->GetObject());
-      }
+      }  
 
-      return objects;
+      return objects; //最终使用validVertices来作为相邻结果
     }
   };  // class BreadthFirstTraversal
 
   ////////////////////////////////////////////////////////////////////////////////////////
   ////////////////////////////////////////////////////////////////////////////////////////
   ////////////////////////////////////////////////////////////////////////////////////////
-
+  //很简单的class，第一个功能是初始化一个参照的当前帧，以及比较距离的阈值； 第二个功能是根据当前帧和阈值实现 与 指定 pVertex的数据的barycenter的平方距离计算，判断是否相邻
   class NearScanVisitor : public Visitor<LocalizedRangeScan>
   {
   public:
@@ -1100,6 +1101,7 @@ namespace karto
       : m_MaxDistanceSquared(math::Square(maxDistance))
       , m_UseScanBarycenter(useScanBarycenter)
     {
+      //m_CenterPose就是 Barycenter
       m_CenterPose = pScan->GetReferencePose(m_UseScanBarycenter);
     }
 
@@ -1108,7 +1110,7 @@ namespace karto
       LocalizedRangeScan* pScan = pVertex->GetObject();
 
       Pose2 pose = pScan->GetReferencePose(m_UseScanBarycenter);
-
+      // m_CenterPose存储了当前帧的 Barycenter， 而pose则是 pVertex中的帧的Barycenter，于是下面squareDistance就是在比较这两个数值的平方距离
       kt_double squaredDistance = pose.GetPosition().SquaredDistance(m_CenterPose.GetPosition());
       return (squaredDistance <= m_MaxDistanceSquared - KT_TOLERANCE);
     }
@@ -1358,8 +1360,9 @@ namespace karto
 
   void MapperGraph::LinkNearChains(LocalizedRangeScan* pScan, Pose2Vector& rMeans, std::vector<Matrix3>& rCovariances)
   {
+    //查找相邻帧的操作只能理解前部分，也就是使用深度优先搜索的方法访问，后面还有一些判断条件，不明所以
     const std::vector<LocalizedRangeScanVector> nearChains = FindNearChains(pScan);
-    const_forEach(std::vector<LocalizedRangeScanVector>, &nearChains)
+    const_forEach(std::vector<LocalizedRangeScanVector>, &nearChains)   //这是一个vector<vector<LocalizedRangeScan>>
     {
       if (iter->size() < m_pMapper->m_pLoopMatchMinimumChainSize->GetValue())
       {
@@ -1395,16 +1398,17 @@ namespace karto
       LinkScans(pClosestScan, pScan, rMean, rCovariance);
     }
   }
-
+  //前面的操作懂了，但是后面的操作看不太懂，感觉像是多余的代码
   std::vector<LocalizedRangeScanVector> MapperGraph::FindNearChains(LocalizedRangeScan* pScan)
   {
     std::vector<LocalizedRangeScanVector> nearChains;
-
+    //这里得到了 Barycenter，这个当前帧读到的数据的世界坐标系的平均值
     Pose2 scanPose = pScan->GetReferencePose(m_pMapper->m_pUseScanBarycenter->GetValue());
 
     // to keep track of which scans have been added to a chain
     LocalizedRangeScanVector processed;
-
+    //m_pMapper->m_pLinkScanMaximumDistance->GetValue()值是10，是说要在10m内找linkscan
+    //通过深度优先算法实现了查找相邻pscan
     const LocalizedRangeScanVector nearLinkedScans = FindNearLinkedScans(pScan,
                                                      m_pMapper->m_pLinkScanMaximumDistance->GetValue());
     const_forEach(LocalizedRangeScanVector, &nearLinkedScans)
@@ -1416,7 +1420,7 @@ namespace karto
         continue;
       }
 
-      // scan has already been processed, skip
+      // scan has already been processed, skip 
       if (find(processed.begin(), processed.end(), pNearScan) != processed.end())
       {
         continue;
@@ -1497,7 +1501,9 @@ namespace karto
 
   LocalizedRangeScanVector MapperGraph::FindNearLinkedScans(LocalizedRangeScan* pScan, kt_double maxDistance)
   {
+    //利用当前帧的barycenter与linkscan的距离约束maxDistance来找linkscan
     NearScanVisitor* pVisitor = new NearScanVisitor(pScan, maxDistance, m_pMapper->m_pUseScanBarycenter->GetValue());
+    //找到了合适的相邻帧
     LocalizedRangeScanVector nearLinkedScans = m_pTraversal->Traverse(GetVertex(pScan), pVisitor);
     delete pVisitor;
 
@@ -2237,6 +2243,14 @@ namespace karto
       // update scans corrected pose based on last correction
       if (pLastScan != NULL)
       {
+        // 如果有两个参数的话，Transform的内容是从pose1->pose2
+        /*
+        // pose transformation
+        Pose2 m_Transform;
+
+        Matrix3 m_Rotation;
+        Matrix3 m_InverseRotation;
+        */
         Transform lastTransform(pLastScan->GetOdometricPose(), pLastScan->GetCorrectedPose());
         pScan->SetCorrectedPose(lastTransform.TransformPose(pScan->GetOdometricPose()));
       }

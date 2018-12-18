@@ -247,7 +247,7 @@ namespace karto
      * Gets a vector of the vertices adjacent to this vertex
      * @return adjacent vertices
      */
-    std::vector<Vertex<T>*> GetAdjacentVertices() const
+    std::vector<Vertex<T>*> GetAdjacentVertices() const   //通过访问本class的 m_Edges来知道结果，同时m_Edges一个边只会最多有两个节点vertex
     {
       std::vector<Vertex<T>*> vertices;
 
@@ -818,7 +818,7 @@ namespace karto
       assert(resolution != 0.0);
 
       // +1 in case of roundoff
-      kt_int32u borderSize = GetHalfKernelSize(smearDeviation, resolution) + 1;
+      kt_int32u borderSize = GetHalfKernelSize(smearDeviation, resolution) + 1;  // borderSize 的值是7，作用是什么呢
 
       CorrelationGrid* pGrid = new CorrelationGrid(width, height, borderSize, resolution, smearDeviation);
 
