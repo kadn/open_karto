@@ -17,6 +17,41 @@
 
 #include <open_karto/Mapper.h>
 
+//this data is used to assign distance that precalculated by wph. 这是第二帧与第一帧重合的地方在第二帧的scan位置看到的距离。总共有90度范围，另外数据是逆时针的，这与数学相同。
+/*
+you will see the predefined map by wph.
+%MATLAB code.  This code show how I got const double data[91], actually data[0] is added by hand, not code.
+% used for calculate the distance between frame 2 and frame 1, used in
+% open_karto turtorial1 for my example. because I think the origin code
+% builds a confusing map. So I correct it.
+
+x1=[1,0];
+t=(90:-0.1:-90)/180*pi;
+x = 3*cos(t)+1;
+y = 3*sin(t);
+
+point = [x',y'];
+
+distance = [];
+length = 705;
+
+pp = point(length:-1:1,:);
+
+for i=1:length   %
+    p = [pp(i,1)-1,pp(i,2)-1];
+    theta = atan(p(2)/p(1))/pi*180;
+    if(theta-floor(theta)<0.2) && floor(theta)>0
+        distance(floor(theta))=((p(1))^2+(p(2))^2)^0.5;
+    end
+end
+
+
+% uncomment following code to make the data has comma
+% fid = fopen('data.txt','wt')
+% fprintf(fid,'%f,',distance);
+% fclose(fid)
+*/
+const double data[91]={2.8279,2.808727,2.791282,2.773847,2.756430,2.740774,2.723405,2.706070,2.690502,2.673248,2.657763,2.642325,2.625231,2.609906,2.594642,2.579444,2.564316,2.549265,2.534295,2.519411,2.504618,2.489923,2.476945,2.462447,2.448061,2.435373,2.421215,2.408738,2.396367,2.382581,2.370449,2.358435,2.346543,2.334779,2.321702,2.310222,2.298882,2.289078,2.278014,2.267102,2.256347,2.245754,2.236621,2.226342,2.216238,2.207543,2.197777,2.189385,2.179973,2.171897,2.162853,2.155107,2.147518,2.139043,2.131803,2.124730,2.117826,2.110148,2.103617,2.097264,2.091092,2.085103,2.079300,2.073685,2.068260,2.063028,2.057991,2.053151,2.048510,2.044693,2.040428,2.036368,2.032514,2.028870,2.025435,2.022660,2.019620,2.016795,2.014185,2.012122,2.009916,2.007930,2.006403,2.004826,2.003471,2.002486,2.001544,2.000825,2.000386,2.000082,2.000000};
 /**
  * Sample code to demonstrate karto map creation
  * Create a laser range finder device and three "dummy" range scans. 
@@ -29,9 +64,10 @@ karto::Dataset* CreateMap(karto::Mapper* pMapper)
   /////////////////////////////////////
   // Create a laser range finder device - use SmartPointer to let karto subsystem manage memory.
   karto::Name name("laser0");
+  //LaserRangeFinder 之中包含了 对于不同型号的laser的参数的填写，还可以自定义laser，这里面有默认的关于laser的配置数据
   karto::LaserRangeFinder* pLaserRangeFinder = karto::LaserRangeFinder::CreateLaserRangeFinder(karto::LaserRangeFinder_Custom, name);
   pLaserRangeFinder->SetOffsetPose(karto::Pose2(1.0, 0.0, 0.0));   //这里说了scan laser0相对于车中心的位置。
-  pLaserRangeFinder->SetAngularResolution(karto::math::DegreesToRadians(0.5));  //180度的laser，分辨率是0.5，就会有361个光束
+  pLaserRangeFinder->SetAngularResolution(karto::math::DegreesToRadians(1));  //180度的laser，分辨率是0.5，就会有361个光束
   pLaserRangeFinder->SetRangeThreshold(12.0);
 
   pDataset->Add(pLaserRangeFinder);
@@ -44,7 +80,7 @@ karto::Dataset* CreateMap(karto::Mapper* pMapper)
 
   // Create a vector of range readings. Simple example where all the measurements are the same value.
   std::vector<kt_double> readings;
-  for (int i=0; i<361; i++)
+  for (int i=0; i<181; i++)
   {
     readings.push_back(3.0);
   }
@@ -63,6 +99,17 @@ karto::Dataset* CreateMap(karto::Mapper* pMapper)
 
   // 2. localized range scan
 
+
+  // create new range
+  readings.clear();
+  for (int i=0; i<91; i++)
+  {
+    readings.push_back(data[i]);
+  }
+  for (int i=0;i<90; i++)
+  {
+    readings.push_back(3.0);
+  }
   // create localized range scan
   pLocalizedRangeScan = new karto::LocalizedRangeScan(name, readings);
   pLocalizedRangeScan->SetOdometricPose(karto::Pose2(1.0, 0.0, 1.57));
@@ -78,16 +125,16 @@ karto::Dataset* CreateMap(karto::Mapper* pMapper)
   // 3. localized range scan
 
   // create localized range scan
-  pLocalizedRangeScan = new karto::LocalizedRangeScan(name, readings);
-  pLocalizedRangeScan->SetOdometricPose(karto::Pose2(1.0, -1.0, 2.35619449));
-  pLocalizedRangeScan->SetCorrectedPose(karto::Pose2(1.0, -1.0, 2.35619449));
+  // pLocalizedRangeScan = new karto::LocalizedRangeScan(name, readings);
+  // pLocalizedRangeScan->SetOdometricPose(karto::Pose2(1.0, -1.0, 2.35619449));
+  // pLocalizedRangeScan->SetCorrectedPose(karto::Pose2(1.0, -1.0, 2.35619449));
 
-  // Add the localized range scan to the mapper
-  pMapper->Process(pLocalizedRangeScan);
-  std::cout << "Pose: " << pLocalizedRangeScan->GetOdometricPose() << " Corrected Pose: " << pLocalizedRangeScan->GetCorrectedPose() << std::endl;
+  // // Add the localized range scan to the mapper
+  // pMapper->Process(pLocalizedRangeScan);
+  // std::cout << "Pose: " << pLocalizedRangeScan->GetOdometricPose() << " Corrected Pose: " << pLocalizedRangeScan->GetCorrectedPose() << std::endl;
 
-  // Add the localized range scan to the dataset
-  pDataset->Add(pLocalizedRangeScan);
+  // // Add the localized range scan to the dataset
+  // pDataset->Add(pLocalizedRangeScan);
 
   return pDataset;
 }
