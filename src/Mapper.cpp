@@ -561,7 +561,7 @@ namespace karto
         for (kt_int32u angleIndex = 0; angleIndex < nAngles; angleIndex++)
         {
           angle = startAngle + angleIndex * searchAngleResolution;
-          //由 angleIndex 和 gridIndex得出response
+          //由 angleIndex 和 gridIndex得出response   //将旋转平移之后的这一帧数据和上一帧的数据进行匹配得分
           kt_double response = GetResponse(angleIndex, gridIndex);
           if (doPenalize && (math::DoubleEqual(response, 0.0) == false))
           {
@@ -900,7 +900,7 @@ namespace karto
         continue;
       }
 
-      m_pCorrelationGrid->GetDataPointer()[gridIndex] = GridStates_Occupied;
+      m_pCorrelationGrid->GetDataPointer()[gridIndex] = GridStates_Occupied;  //在这里将之前的数据帧的所有扫描点都在grid中更新状态，用于之后的匹配
 
       // smear grid
       if (doSmear == true)
@@ -984,9 +984,9 @@ namespace karto
     kt_double response = 0.0;
 
     // add up value for each point
-    kt_int8u* pByte = m_pCorrelationGrid->GetDataPointer() + gridPositionIndex;
-
-    const LookupArray* pOffsets = m_pGridLookup->GetLookupArray(angleIndex);
+    kt_int8u* pByte = m_pCorrelationGrid->GetDataPointer() + gridPositionIndex;   //实际获得了Grid<T>的m_pData， T* m_pData;  即 uchar* m_pData; 大小是m_WidthStep * m_Height，因此是栅格格子个数大小
+    //m_pGridLoopup存储 nAngles个LookupArray指针，每一个称之为pOffsets，每一个offsets存储了每一个扫描点的数据。这个数据应为栅格是否被占据的状态
+    const LookupArray* pOffsets = m_pGridLookup->GetLookupArray(angleIndex); //LookupArray* pOffsets的m_pArray中存储了总共n个扫描点的数据
     assert(pOffsets != NULL);
 
     // get number of points in offset list
@@ -1000,13 +1000,16 @@ namespace karto
     kt_int32s* pAngleIndexPointer = pOffsets->GetArrayPointer();
     for (kt_int32u i = 0; i < nPoints; i++)
     {
+      //将当前帧的扫描点(nPoints个)经过旋选之后的结果存储起来了，存在哪里了呢？存在了m_pGridLookup里面。存储的表示是pAngleIndexPointer[i]的id，表示存在了格子的第几个上面
       // ignore points that fall off the grid
       kt_int32s pointGridIndex = gridPositionIndex + pAngleIndexPointer[i];
       if (!math::IsUpTo(pointGridIndex, m_pCorrelationGrid->GetDataSize()) || pAngleIndexPointer[i] == INVALID_SCAN)
       {
         continue;
       }
-
+      //那么如果pByte是一个已经写好之前的帧的扫描点的占据状态位置的话，就只需要访问一下当前帧当前旋转角度当前扫描点的落脚点所在的格子的响应值就好了。
+      //如果以前被占据了，就是100，如果不是，就应该是0. 
+      //如果还有疑惑，就应该是pByte所代表的数据是如何赋值的。只需要找到这部分代码就可以了。
       // uses index offsets to efficiently find location of point in the grid
       response += pByte[pAngleIndexPointer[i]];
     }
@@ -1348,8 +1351,9 @@ namespace karto
                               const Pose2& rMean, const Matrix3& rCovariance)
   {
     kt_bool isNewEdge = true;
+    //将source与target连接起来，或者说将from与to连接起来
     Edge<LocalizedRangeScan>* pEdge = AddEdge(pFromScan, pToScan, isNewEdge);
-
+    //利用ScanOptimizer来优化这条边，输入的是边，误差，初始化值，可信度
     // only attach link information if the edge is new
     if (isNewEdge == true)
     {
@@ -1389,7 +1393,7 @@ namespace karto
                                     const Pose2& rMean, const Matrix3& rCovariance)
   {
     Pose2 pose = pScan->GetReferencePose(m_pMapper->m_pUseScanBarycenter->GetValue());
-
+    //找到runningScans中距离自己最近的那个
     LocalizedRangeScan* pClosestScan = GetClosestScanToPose(rChain, pose);
     assert(pClosestScan != NULL);
 
@@ -1398,7 +1402,7 @@ namespace karto
     kt_double squaredDistance = pose.GetPosition().SquaredDistance(closestScanPose.GetPosition());
     if (squaredDistance < math::Square(m_pMapper->m_pLinkScanMaximumDistance->GetValue()) + KT_TOLERANCE)
     {
-      LinkScans(pClosestScan, pScan, rMean, rCovariance);
+      LinkScans(pClosestScan, pScan, rMean, rCovariance);   //连接合适的runningScans中的距离最近的帧
     }
   }
   //前面的操作懂了，但是后面的操作看不太懂，感觉像是多余的代码

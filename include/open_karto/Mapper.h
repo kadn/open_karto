@@ -1173,7 +1173,7 @@ namespace karto
     CorrelationGrid* m_pCorrelationGrid;   //更多用来存储栅格，同时提供world2grid这个功能，在其内部有 GridIndex 方法似乎和 Grid<T>::GridIndex 一样
     Grid<kt_double>* m_pSearchSpaceProbs;
 
-    GridIndexLookup<kt_int8u>* m_pGridLookup;
+    GridIndexLookup<kt_int8u>* m_pGridLookup; //用来存储经过不同旋转之后的nPoints个扫描点应该落在的位置上面
   };  // ScanMatcher
 
   ////////////////////////////////////////////////////////////////////////////////////////

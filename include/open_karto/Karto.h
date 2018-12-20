@@ -4347,7 +4347,7 @@ namespace karto
 
   private:
     Size2<kt_int32s> m_Size;
-    kt_double m_Scale;
+    kt_double m_Scale;    // 定义了1m范围内要有m_Scale个行，以及m_Scale列，m_Scale=100
 
     Vector2<kt_double> m_Offset;
   };  // CoordinateConverter
@@ -6490,10 +6490,15 @@ namespace karto
         Vector2<kt_double> offset;   //将rPosition相对于当前帧的sensor这个点(比如在tutorial1中第一次来这里时是1,1)逆时针旋转angle度，得到offset
         offset.SetX(cosine * rPosition.GetX() - sine * rPosition.GetY());
         offset.SetY(sine * rPosition.GetX() + cosine * rPosition.GetY());
+        
+
+        //for test
+        // Vector2<kt_double> test(-11,-11);
+        // Vector2<kt_int32s> testgridpoint = m_pGrid->WorldToGrid(test);
 
         // have to compensate for the grid offset when getting the grid index
         Vector2<kt_int32s> gridPoint = m_pGrid->WorldToGrid(offset + rGridOffset);// 这个地方难道不该是相减吗？？？？gridPoint是负的有什么用呢？难道grid的第0个点指的是中心？上面是正的，下面是负的？
-
+        //总之经过上面这么一折腾，gridPoint的结果和offset其实是差不多的，过程相当于将offset*100，然后round结果
         // use base GridIndex to ignore ROI
         kt_int32s lookupIndex = m_pGrid->Grid<T>::GridIndex(gridPoint, false);
 
