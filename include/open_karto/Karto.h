@@ -4956,7 +4956,7 @@ namespace karto
   /**
    * LaserRangeScan representing the range readings from a laser range finder sensor.
    */
-  class LaserRangeScan : public SensorData
+  class LaserRangeScan : public SensorData   //这里面存储了最原始的扫描深度数据，然后在LocalizedRangeScan中存储了扫描点在世界坐标系中的位置
   {
   public:
     // @cond EXCLUDE
@@ -5275,15 +5275,25 @@ namespace karto
      */
     void SetSensorPose(const Pose2& rScanPose)
     {
-      Pose2 deviceOffsetPose2 = GetLaserRangeFinder()->GetOffsetPose();
+      Pose2 deviceOffsetPose2 = GetLaserRangeFinder()->GetOffsetPose();   //这是sensor相对于车中心的坐标
       kt_double offsetLength = deviceOffsetPose2.GetPosition().Length();
-      kt_double offsetHeading = deviceOffsetPose2.GetHeading();
+      kt_double offsetHeading = deviceOffsetPose2.GetHeading();  //这是sensor相对于车坐标系的角度
       kt_double angleoffset = atan2(deviceOffsetPose2.GetY(), deviceOffsetPose2.GetX());
       kt_double correctedHeading = math::NormalizeAngle(rScanPose.GetHeading());
+      // worldSensorOffset 是"scan相对于车的偏移"在世界坐标系中的位置
+
+      //先假设angleoffset是0，那么correctHeading减去offsetHeading是 offset相对于世界坐标系的角度。
+      //假设 offsetLength是1， correctedHeading 是pi，  offsetHeading是 pi/2， 那么
+      //offsetLength * cos(correctedHeading + angleoffset - offsetHeading) = 0
+      //offsetLength * sin(correctedHeading + angleoffset - offsetHeading) = 1
+      // angleoffset 的含义与在最初设定offset时有关，且可以认为这里的angleoffset的符号写反了，
+      // offset 的heading 的含义如果是相对于车坐标系而言的，那么就没有必要使用 angleoffset， 如果是相对于 "以车原点为圆心，laser到圆心为x轴的坐标系"，
+      // 那么也应该用 correctedHeading - angleoffset - offsetHeading。 
       Pose2 worldSensorOffset = Pose2(offsetLength * cos(correctedHeading + angleoffset - offsetHeading),
                                       offsetLength * sin(correctedHeading + angleoffset - offsetHeading),
                                       offsetHeading);
-
+      // rScanPose是 scan在世界坐标系的位置，  worldSensorOffset是 "scan相对于车的偏移"在世界坐标系中的位置，相减之后就是车相对世界坐标系的位置
+      // 这里的相减 会让角度也相减，也就是 correctedHeading - offsetHeading， 这样就得到了车的角度相对于世界坐标系的角度
       m_CorrectedPose = rScanPose - worldSensorOffset;
 
       Update();
@@ -6412,12 +6422,12 @@ namespace karto
       //////////////////////////////////////////////////////
       // convert points into local coordinates of scan pose
 
-      const PointVectorDouble& rPointReadings = pScan->GetPointReadings();  //rPointReadings是每一个激光数据点相对于激光位置的二维坐标
+      const PointVectorDouble& rPointReadings = pScan->GetPointReadings();  //rPointReadings是激光数据的深度信息转换为在世界坐标系中的二维坐标
 
       // compute transform to scan pose
       Transform transform(pScan->GetSensorPose());   //得到 pscan  -> transform，形式变了，内容没变
 
-      Pose2Vector localPoints;
+      Pose2Vector localPoints;  //localPoints的所有数据的角度是 -90度，不太能理解，xy数据是扫描点相对于sensor的位置
       const_forEach(PointVectorDouble, &rPointReadings)
       {
         // do inverse transform to get points in local coordinates
@@ -6459,6 +6469,7 @@ namespace karto
 
       kt_int32u readingIndex = 0;
 
+      //第i个角度的所有扫描数据的指针，每一个扫描数据又是一个uint数组，这个uint数组的大小是LookupArray的m_Capacity， m_Capacity 的大小是rLocalPoints.size()
       kt_int32s* pAngleIndexPointer = m_ppLookupArray[angleIndex]->GetArrayPointer();
 
       kt_double maxRange = pScan->GetLaserRangeFinder()->GetMaximumRange();
@@ -6476,12 +6487,12 @@ namespace karto
 
 
         // counterclockwise rotation and that rotation is about the origin (0, 0).
-        Vector2<kt_double> offset;
+        Vector2<kt_double> offset;   //将rPosition相对于当前帧的sensor这个点(比如在tutorial1中第一次来这里时是1,1)逆时针旋转angle度，得到offset
         offset.SetX(cosine * rPosition.GetX() - sine * rPosition.GetY());
         offset.SetY(sine * rPosition.GetX() + cosine * rPosition.GetY());
 
         // have to compensate for the grid offset when getting the grid index
-        Vector2<kt_int32s> gridPoint = m_pGrid->WorldToGrid(offset + rGridOffset);
+        Vector2<kt_int32s> gridPoint = m_pGrid->WorldToGrid(offset + rGridOffset);// 这个地方难道不该是相减吗？？？？gridPoint是负的有什么用呢？难道grid的第0个点指的是中心？上面是正的，下面是负的？
 
         // use base GridIndex to ignore ROI
         kt_int32s lookupIndex = m_pGrid->Grid<T>::GridIndex(gridPoint, false);

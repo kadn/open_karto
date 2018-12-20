@@ -66,10 +66,11 @@ karto::Dataset* CreateMap(karto::Mapper* pMapper)
   karto::Name name("laser0");
   //LaserRangeFinder 之中包含了 对于不同型号的laser的参数的填写，还可以自定义laser，这里面有默认的关于laser的配置数据
   karto::LaserRangeFinder* pLaserRangeFinder = karto::LaserRangeFinder::CreateLaserRangeFinder(karto::LaserRangeFinder_Custom, name);
-  pLaserRangeFinder->SetOffsetPose(karto::Pose2(1.0, 0.0, 0.0));   //这里说了scan laser0相对于车中心的位置。
+  pLaserRangeFinder->SetOffsetPose(karto::Pose2(1.0, 0.0, karto::math::DegreesToRadians(0.0)));   //这里说了scan laser0在车坐标系中的位置。
   pLaserRangeFinder->SetAngularResolution(karto::math::DegreesToRadians(1));  //180度的laser，分辨率是0.5，就会有361个光束
-  pLaserRangeFinder->SetRangeThreshold(12.0);
+  pLaserRangeFinder->SetRangeThreshold(12.0);  //这个是说 12.0以内的数据有效，大于12.0可以认为不准确
 
+  //将 pLaserRangeFinder加入管理，其中用到了 singleton的概念来创建管理器，并将这个pLaserRangeFinder管理起来
   pDataset->Add(pLaserRangeFinder);
 
   /////////////////////////////////////
@@ -86,6 +87,7 @@ karto::Dataset* CreateMap(karto::Mapper* pMapper)
   }
   
   // create localized range scan
+  // LocalizedRangeScan 则存储了这一帧的数据，数据来源，以及相关的robot,sensor之间的相对关系，以及 他们的里程计信息
   pLocalizedRangeScan = new karto::LocalizedRangeScan(name, readings);
   pLocalizedRangeScan->SetOdometricPose(karto::Pose2(0.0, 0.0, 0.0));
   pLocalizedRangeScan->SetCorrectedPose(karto::Pose2(0.0, 0.0, 0.0));

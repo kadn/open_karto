@@ -41,7 +41,7 @@ namespace karto
   ////////////////////////////////////////////////////////////////////////////////////////
   ////////////////////////////////////////////////////////////////////////////////////////
   ////////////////////////////////////////////////////////////////////////////////////////
-
+  //从成员变量来看，这个是存储了 scan和 runningscan的类，非常重要，同时这个又会被另一个类使用，形式是map<name, ScanManager>
   /**
    * Manages the scan data for a device
    */
@@ -133,6 +133,7 @@ namespace karto
       Pose2 backScanPose = m_RunningScans.back()->GetSensorPose();
 
       // cap vector size and remove all scans from front of vector that are too far from end of vector
+      //进行 runningScan的维护，数量上的维护以及第一个与最后一个距离之间的维护
       kt_double squaredDistance = frontScanPose.GetPosition().SquaredDistance(backScanPose.GetPosition());
       while (m_RunningScans.size() > m_RunningBufferMaximumSize ||
              squaredDistance > math::Square(m_RunningBufferMaximumDistance) - KT_TOLERANCE)
@@ -223,9 +224,9 @@ namespace karto
    */
   void MapperSensorManager::AddScan(LocalizedRangeScan* pScan)
   {
-    GetScanManager(pScan)->AddScan(pScan, m_NextScanId);
-    m_Scans.push_back(pScan);
-    m_NextScanId++;
+    GetScanManager(pScan)->AddScan(pScan, m_NextScanId);   //这个是在ScanManager 类中加入了 pScan
+    m_Scans.push_back(pScan);                              //这个是在当前的MapperSensorManager 中加入了 pScan，两者有关系
+    m_NextScanId++;                                        //MapperSensorManager has a "typedef std::map<Name, ScanManager*> ScanManagerMap"
   }
 
   /**
@@ -324,17 +325,19 @@ namespace karto
 
     assert(math::DoubleEqual(math::Round(searchSize / resolution), (searchSize / resolution)));
 
-    // calculate search space in grid coordinates
+    // calculate search space in grid coordinates   //searchSize大小是0.3，既然和rangeThreshold有相同单位，就是说匹配范围扩大0.3m，类似于卷积核大小是0.3m
     kt_int32u searchSpaceSideSize = static_cast<kt_int32u>(math::Round(searchSize / resolution) + 1);
 
     // compute requisite size of correlation grid (pad grid so that scan points can't fall off the grid
     // if a scan is on the border of the search space)
     kt_int32u pointReadingMargin = static_cast<kt_int32u>(ceil(rangeThreshold / resolution));
-
+    //这里写出了应该搜索的范围的grid
     kt_int32s gridSize = searchSpaceSideSize + 2 * pointReadingMargin;
 
     // create correlation grid
     assert(gridSize % 2 == 1);
+    //CorrelationGrid 和 Grid<kt_double> 都是 Grid<T>的形式，但是这里面有borderSize
+    //作为x,y的坐标，实在是不能理解
     CorrelationGrid* pCorrelationGrid = CorrelationGrid::CreateGrid(gridSize, gridSize, resolution, smearDeviation);
 
     // create search space probabilities
@@ -364,7 +367,7 @@ namespace karto
   {
     ///////////////////////////////////////
     // set scan pose to be center of grid
-
+    //pScan还没有更新父类LaserRangeScan中原始数据，扫描深度数据都在父类中，通过 pScan->GetRangeReadings()[iterNum]这种形式来访问。
     // 1. get scan position
     Pose2 scanPose = pScan->GetSensorPose();   // 第二个数据进来时，scanPose的位置是(1,1) angle是 90度
 
@@ -383,7 +386,7 @@ namespace karto
     }
 
     // 2. get size of grid
-    Rectangle2<kt_int32s> roi = m_pCorrelationGrid->GetROI();   // 这个是栅格地图，10（雷达范围）+0.3(滑窗范围)
+    Rectangle2<kt_int32s> roi = m_pCorrelationGrid->GetROI();   // 这个是栅格地图，12（雷达范围,之前设置过的 SetRangeThreshold)+0.3m(滑窗范围)
     std::cout << "width : " <<roi.GetWidth() << " height : " << roi.GetHeight() << " center : " << roi.GetCenter().GetX() << " " << roi.GetCenter().GetY() << std::endl;
 
     // 3. compute offset (in meters - lower left corner)
@@ -397,7 +400,7 @@ namespace karto
     ///////////////////////////////////////
 
     // set up correlation grid
-    AddScans(rBaseScans, scanPose.GetPosition());  //获得了Roi里栅格状态
+    AddScans(rBaseScans, scanPose.GetPosition());  //获得了Roi里栅格状态  //这个会对扫描点进行处理
 
     // compute how far to search in each direction   //coarseSearchOffset 是一个坐标
     Vector2<kt_double> searchDimensions(m_pSearchSpaceProbs->GetWidth(), m_pSearchSpaceProbs->GetHeight());
@@ -408,7 +411,7 @@ namespace karto
     Vector2<kt_double> coarseSearchResolution(2 * m_pCorrelationGrid->GetResolution(),
                                               2 * m_pCorrelationGrid->GetResolution());
 
-    // actual scan-matching   //找到了 最好的位姿使得response最大
+    // actual scan-matching   //找到了 最好的位姿使得response最大   //这里面进行了三重for循环来判断是否有合适的旋转
     kt_double bestResponse = CorrelateScan(pScan, scanPose, coarseSearchOffset, coarseSearchResolution,
                                            m_pMapper->m_pCoarseSearchAngleOffset->GetValue(),
                                            m_pMapper->m_pCoarseAngleResolution->GetValue(),
@@ -489,7 +492,7 @@ namespace karto
   {
     assert(searchAngleResolution != 0.0);
 
-    // setup lookup arrays    //这个函数把lookuparray的角度写好了。每一个lookuparry存储了每一个激光数据(总共361个)在角度滑窗之后的结果，还没有xy的滑窗
+    // setup lookup arrays    //这个函数把lookuparray的角度写好了。每一个lookuparry存储了每一个激光数据(总共361/修改之后为180个)在角度滑窗之后的结果，还没有xy的滑窗
     m_pGridLookup->ComputeOffsets(pScan, rSearchCenter.GetHeading(), searchAngleOffset, searchAngleResolution);
 
     // only initialize probability grid if computing positional covariance (during coarse match)
@@ -503,7 +506,7 @@ namespace karto
     }
 
     // calculate position arrays
-
+    //以下计算出需要的各种x，y，angle用于三重循环 ，在这里x有16个值，y有16个值，angle有21个值
     std::vector<kt_double> xPoses;
     kt_int32u nX = static_cast<kt_int32u>(math::Round(rSearchSpaceOffset.GetX() *
                                           2.0 / rSearchSpaceResolution.GetX()) + 1);
@@ -531,7 +534,7 @@ namespace karto
 
     // allocate array   //Pose2包含了 x,y,theta. 滑窗的结果存储在pPoseResponse中
     std::pair<kt_double, Pose2>* pPoseResponse = new std::pair<kt_double, Pose2>[poseResponseSize];
-
+    //这边有涉及到grid栅格的index和我想的不一样的问题，并非相对左下角的坐标转换为 index，似乎是中心是0,0
     Vector2<kt_int32s> startGridPoint = m_pCorrelationGrid->WorldToGrid(Vector2<kt_double>(rSearchCenter.GetX()
                                                                         + startX, rSearchCenter.GetY() + startY));
 
@@ -863,7 +866,7 @@ namespace karto
     // add all scans to grid
     const_forEach(LocalizedRangeScanVector, &rScans)   // rScans 可能是 running scans 或者 相邻的scans或者 闭环产生的scans
     {
-      AddScan(*iter, viewPoint);    
+      AddScan(*iter, viewPoint);    //viewPoint 是当前帧的 在世界坐标系中的位置，但是不包含laser朝向信息，而 *iter都是存储的之前的帧的扫描点在世界坐标系中的位置
     }
   }
 
@@ -875,7 +878,7 @@ namespace karto
    */
   void ScanMatcher::AddScan(LocalizedRangeScan* pScan, const Vector2<kt_double>& rViewPoint, kt_bool doSmear)
   {
-    PointVectorDouble validPoints = FindValidPoints(pScan, rViewPoint);   //找到pscan在 rviewpoint附近一个圆形范围内的栅格地图之内的点，记为有效的点
+    PointVectorDouble validPoints = FindValidPoints(pScan, rViewPoint);   //找到之前的scan在 rviewpoint看来合适的点，具体条件见函数内部，记为有效的点
 
     // put in all valid points
     const_forEach(PointVectorDouble, &validPoints)
@@ -927,7 +930,7 @@ namespace karto
 
     Vector2<kt_double> firstPoint;
     kt_bool firstTime = true;
-    const_forEach(PointVectorDouble, &rPointReadings)
+    const_forEach(PointVectorDouble, &rPointReadings)  //访问一个帧的扫描点数据，这些数据的含义是扫描点在世界坐标系中的位置
     {
       Vector2<kt_double> currentPoint = *iter;
 
@@ -961,7 +964,7 @@ namespace karto
         {
           for (; trailingPointIter != iter; ++trailingPointIter)
           {
-            validPoints.push_back(*trailingPointIter);
+            validPoints.push_back(*trailingPointIter);    //将符合条件的（1.距离大于一定值2.是正确的时针方向）扫描点加入validPoints之中
           }
         }
       }
@@ -1231,7 +1234,7 @@ namespace karto
     kt_bool loopClosed = false;
 
     kt_int32u scanIndex = 0;
-
+    //通过这个FindPossibleLoopClosure先找到临近的10帧，要保证它们和当前帧barycenter距离小于4m，同时是连续的10帧，同时10帧之中不包含当前帧的相邻帧（相邻帧的获取在AddEdges函数中）
     LocalizedRangeScanVector candidateChain = FindPossibleLoopClosure(pScan, rSensorName, scanIndex);
 
     while (!candidateChain.empty())
@@ -1559,7 +1562,7 @@ namespace karto
                                                                 kt_int32u& rStartNum)
   {
     LocalizedRangeScanVector chain;  // return value
-
+    //得到 当前帧的扫描点的平均值
     Pose2 pose = pScan->GetReferencePose(m_pMapper->m_pUseScanBarycenter->GetValue());
 
     // possible loop closure chain should not include close scans that have a
@@ -1570,10 +1573,11 @@ namespace karto
     kt_int32u nScans = static_cast<kt_int32u>(m_pMapper->m_pMapperSensorManager->GetScans(rSensorName).size());
     for (; rStartNum < nScans; rStartNum++)
     {
+      //m_pMapperSensorManager中存储了所有的帧
       LocalizedRangeScan* pCandidateScan = m_pMapper->m_pMapperSensorManager->GetScan(rSensorName, rStartNum);
 
       Pose2 candidateScanPose = pCandidateScan->GetReferencePose(m_pMapper->m_pUseScanBarycenter->GetValue());
-
+      //得到当前帧与所有帧(m_Scans)的第rStartNum帧之间的平方距离
       kt_double squaredDistance = candidateScanPose.GetPosition().SquaredDistance(pose.GetPosition());
       if (squaredDistance < math::Square(m_pMapper->m_pLoopSearchMaximumDistance->GetValue()) + KT_TOLERANCE)  //从头开始找，如果帧距离当前帧位置在m_pLoopSearchMaximumDistance（4m）之内，就先记录一下
       {
@@ -2223,6 +2227,7 @@ namespace karto
   {
     if (pScan != NULL)
     {
+      //通过 单例模式 实现了 pLaserRangeFinder的找回
       karto::LaserRangeFinder* pLaserRangeFinder = pScan->GetLaserRangeFinder();
 
       // validate scan
@@ -2284,8 +2289,9 @@ namespace karto
         m_pGraph->AddVertex(pScan);
         m_pGraph->AddEdges(pScan, covariance);
 
-        m_pMapperSensorManager->AddRunningScan(pScan);
+        m_pMapperSensorManager->AddRunningScan(pScan);  // 这里面有RunningScan的维护
 
+        //进行回环检测的步骤
         if (m_pDoLoopClosing->GetValue())
         {
           std::vector<Name> deviceNames = m_pMapperSensorManager->GetSensorNames();
@@ -2296,7 +2302,7 @@ namespace karto
         }
       }
 
-      m_pMapperSensorManager->SetLastScan(pScan);
+      m_pMapperSensorManager->SetLastScan(pScan);   //每一次的 LastScan都是一个正常的pScan，而不是空的
 
       return true;
     }

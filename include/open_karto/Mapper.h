@@ -786,7 +786,7 @@ namespace karto
   ////////////////////////////////////////////////////////////////////////////////////////
   ////////////////////////////////////////////////////////////////////////////////////////
   ////////////////////////////////////////////////////////////////////////////////////////
-
+  
   /**
    * Implementation of a correlation grid used for scan matching
    */
@@ -1170,7 +1170,7 @@ namespace karto
   private:
     Mapper* m_pMapper;
 
-    CorrelationGrid* m_pCorrelationGrid;
+    CorrelationGrid* m_pCorrelationGrid;   //更多用来存储栅格，同时提供world2grid这个功能，在其内部有 GridIndex 方法似乎和 Grid<T>::GridIndex 一样
     Grid<kt_double>* m_pSearchSpaceProbs;
 
     GridIndexLookup<kt_int8u>* m_pGridLookup;
@@ -1179,9 +1179,9 @@ namespace karto
   ////////////////////////////////////////////////////////////////////////////////////////
   ////////////////////////////////////////////////////////////////////////////////////////
   ////////////////////////////////////////////////////////////////////////////////////////
-
+  //ScanManager用来描述某一个设备的在各个时期采集到的scan以及runningscan
   class ScanManager;
-
+  //集中了所有的device的scans，以名字为分隔
   /**
    * Manages the devices for the mapper
    */
@@ -1686,7 +1686,7 @@ namespace karto
 
     ScanMatcher* m_pSequentialScanMatcher;
 
-    MapperSensorManager* m_pMapperSensorManager;
+    MapperSensorManager* m_pMapperSensorManager;    //这个里面包含了历史的scans 以及runningscans
 
     MapperGraph* m_pGraph;
     ScanSolver* m_pScanOptimizer;
