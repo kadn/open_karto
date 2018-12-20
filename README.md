@@ -1,3 +1,5 @@
+# 加入了非常详细的中文代码解释
+
 # Open Karto
 
 Catkinized ROS Package of the OpenKarto Library (LGPL3)
