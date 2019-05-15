@@ -386,11 +386,13 @@ namespace karto
     }
 
     // 2. get size of grid
-    Rectangle2<kt_int32s> roi = m_pCorrelationGrid->GetROI();   // 这个是栅格地图，12（雷达范围,之前设置过的 SetRangeThreshold)+0.3m(滑窗范围)
+    Rectangle2<kt_int32s> roi = m_pCorrelationGrid->GetROI();   // 这个是矩形栅格地图，12（雷达范围,之前设置过的 SetRangeThreshold)+0.3m(滑窗范围)
     std::cout << "width : " <<roi.GetWidth() << " height : " << roi.GetHeight() << " center : " << roi.GetCenter().GetX() << " " << roi.GetCenter().GetY() << std::endl;
 
     // 3. compute offset (in meters - lower left corner)
     Vector2<kt_double> offset;  //offset是栅格左下角在世界坐标系中的位置
+
+    // m_pCorrelationGrid->GetResolution()  栅格地图一个格子在实际中的长度，单位：默认是 m
     offset.SetX(scanPose.GetX() - (0.5 * (roi.GetWidth() - 1) * m_pCorrelationGrid->GetResolution()));
     offset.SetY(scanPose.GetY() - (0.5 * (roi.GetHeight() - 1) * m_pCorrelationGrid->GetResolution()));
 
@@ -400,6 +402,9 @@ namespace karto
     ///////////////////////////////////////
 
     // set up correlation grid
+    // 这里的scanPose.GetPosition()是 Lidar的位置，不是Lidar point的位置
+
+    //将rBaseScans的点所对应的栅格置为“occupied”，这就相当于存储好了原始的数据，之后只要拿现在的和原始的栅格相比较就行了
     AddScans(rBaseScans, scanPose.GetPosition());  //获得了Roi里栅格状态  //这个会对扫描点进行处理
 
     // compute how far to search in each direction   //coarseSearchOffset 是一个坐标
@@ -408,6 +413,7 @@ namespace karto
                                           0.5 * (searchDimensions.GetY() - 1) * m_pCorrelationGrid->GetResolution());
 
     // a coarse search only checks half the cells in each dimension
+    //因为每两个格子扫描一下，所以认为是粗略的
     Vector2<kt_double> coarseSearchResolution(2 * m_pCorrelationGrid->GetResolution(),
                                               2 * m_pCorrelationGrid->GetResolution());
 
@@ -537,7 +543,10 @@ namespace karto
     //这边有涉及到grid栅格的index和我想的不一样的问题，并非相对左下角的坐标转换为 index，似乎是中心是0,0
     Vector2<kt_int32s> startGridPoint = m_pCorrelationGrid->WorldToGrid(Vector2<kt_double>(rSearchCenter.GetX()
                                                                         + startX, rSearchCenter.GetY() + startY));
+    
 
+    //在 xy范围上进行遍历，因为 使用了角度的查找表，所以其实 遍历了 x  y theta， 最终找到最大的response
+    //如果使用了 惩罚项，那么公式变成了  response = k* response. 当 dx dy dtheta越大的时候， k越小 
     kt_int32u poseResponseCounter = 0;
     forEachAs(std::vector<kt_double>, &yPoses, yIter)
     {
@@ -664,6 +673,7 @@ namespace karto
     }
     else
     {
+      //角度上的协方差
       ComputeAngularCovariance(averagePose, bestResponse, rSearchCenter,
                               searchAngleOffset, searchAngleResolution, rCovariance);
     }
@@ -801,6 +811,7 @@ namespace karto
    * @param searchAngleResolution
    * @param rCovariance
    */
+  //使用最好的点，再次计算response
   void ScanMatcher::ComputeAngularCovariance(const Pose2& rBestPose,
                                              kt_double bestResponse,
                                              const Pose2& rSearchCenter,
@@ -878,12 +889,14 @@ namespace karto
    */
   void ScanMatcher::AddScan(LocalizedRangeScan* pScan, const Vector2<kt_double>& rViewPoint, kt_bool doSmear)
   {
-    PointVectorDouble validPoints = FindValidPoints(pScan, rViewPoint);   //找到之前的scan在 rviewpoint看来合适的点，具体条件见函数内部，记为有效的点
+    PointVectorDouble validPoints = FindValidPoints(pScan, rViewPoint);   //找到之前的scan在 rviewpoint这个位置上看来合适的点，具体条件见函数内部，记为有效的点
 
     // put in all valid points
     const_forEach(PointVectorDouble, &validPoints)
     {
       Vector2<kt_int32s> gridPoint = m_pCorrelationGrid->WorldToGrid(*iter);  //把 point的位置变为 在栅格地图上的坐标，栅格地图的原点是左下角
+
+      // IsUpTo  means  <
       if (!math::IsUpTo(gridPoint.GetX(), m_pCorrelationGrid->GetROI().GetWidth()) ||
           !math::IsUpTo(gridPoint.GetY(), m_pCorrelationGrid->GetROI().GetHeight()))
       {
@@ -918,6 +931,7 @@ namespace karto
    */
   PointVectorDouble ScanMatcher::FindValidPoints(LocalizedRangeScan* pScan, const Vector2<kt_double>& rViewPoint) const
   {
+    //得到以前已经经过了转换的点， 但是还需要判断方向：顺时针还是逆时针
     const PointVectorDouble& rPointReadings = pScan->GetPointReadings();
 
     // points must be at least 10 cm away when making comparisons of inside/outside of viewpoint
@@ -1009,7 +1023,7 @@ namespace karto
       }
       //那么如果pByte是一个已经写好之前的帧的扫描点的占据状态位置的话，就只需要访问一下当前帧当前旋转角度当前扫描点的落脚点所在的格子的响应值就好了。
       //如果以前被占据了，就是100，如果不是，就应该是0. 
-      //如果还有疑惑，就应该是pByte所代表的数据是如何赋值的。只需要找到这部分代码就可以了。
+      //如果还有疑惑，就应该是pByte所代表的数据是如何赋值的(其实就是 AddScans(rBaseScans, pScan), 在MatchScan一开始的时候就执行了)。只需要找到这部分代码就可以了。
       // uses index offsets to efficiently find location of point in the grid
       response += pByte[pAngleIndexPointer[i]];
     }
@@ -1384,7 +1398,7 @@ namespace karto
 
   void MapperGraph::LinkNearChains(LocalizedRangeScan* pScan, Pose2Vector& rMeans, std::vector<Matrix3>& rCovariances)
   {
-    //先使用深度优先搜索的方法访问，后面还有一些判断条件，保证搜索到的相邻帧组成的链和自己之间（按时间顺序访问）存在着不相邻的帧
+    //先使用广度优先搜索的方法访问，后面还有一些判断条件，保证搜索到的相邻帧组成的链和自己之间（按时间顺序访问）存在着不相邻的帧
     const std::vector<LocalizedRangeScanVector> nearChains = FindNearChains(pScan);
     const_forEach(std::vector<LocalizedRangeScanVector>, &nearChains)   //这是一个vector<vector<LocalizedRangeScan>>
     {
@@ -1442,7 +1456,7 @@ namespace karto
     // to keep track of which scans have been added to a chain
     LocalizedRangeScanVector processed;
     //m_pMapper->m_pLinkScanMaximumDistance->GetValue()值是10，是说要在10m内找linkscan
-    //通过深度优先算法实现了查找相邻pscan， 利用每一个pscan来扩充成一个chain， chain要满足不包含pscan的条件
+    //通过广度优先算法实现了查找相邻pscan， 利用每一个pscan来扩充成一个chain， chain要满足不包含pscan的条件
     const LocalizedRangeScanVector nearLinkedScans = FindNearLinkedScans(pScan,
                                                      m_pMapper->m_pLinkScanMaximumDistance->GetValue());
     const_forEach(LocalizedRangeScanVector, &nearLinkedScans)
