@@ -159,7 +159,7 @@ namespace karto
 
   private:
     LocalizedRangeScanVector m_Scans;
-    LocalizedRangeScanVector m_RunningScans;
+    LocalizedRangeScanVector m_RunningScans;   //这里用队列结构似乎更好，因为要进行删除头的操作
     LocalizedRangeScan* m_pLastScan;
 
     kt_int32u m_RunningBufferMaximumSize;
@@ -1092,7 +1092,7 @@ namespace karto
         objects.push_back((*iter)->GetObject());
       }  
 
-      return objects; //最终使用validVertices来作为相邻结果
+      return objects; //最终使用validVertices的实际scan（而不是vertex<...scan...>）来作为相邻结果
     }
   };  // class BreadthFirstTraversal
 
@@ -1161,6 +1161,7 @@ namespace karto
       Graph<LocalizedRangeScan>::AddVertex(pScan->GetSensorName(), pVertex);
       if (m_pMapper->m_pScanOptimizer != NULL)
       {
+        //使用SPA进行优化
         m_pMapper->m_pScanOptimizer->AddNode(pVertex);
       }
     }
@@ -1189,6 +1190,8 @@ namespace karto
       assert(pSensorManager->GetScans(rSensorName).size() == 1);
 
       std::vector<Name> deviceNames = pSensorManager->GetSensorNames();
+
+      //看看是不是还有其他的设备在传输 scan，对于单一的雷达，接下来的代码没有作用
       forEach(std::vector<Name>, &deviceNames)
       {
         const Name& rCandidateSensorName = *iter;
@@ -1201,6 +1204,8 @@ namespace karto
 
         Pose2 bestPose;
         Matrix3 covariance;
+
+        //对于来自不同设备的laserscan， 可以计算他们之间的关系
         kt_double response = m_pMapper->m_pSequentialScanMatcher->MatchScan(pScan,
                                                                   pSensorManager->GetScans(rCandidateSensorName),
                                                                   bestPose, covariance);
@@ -1244,6 +1249,7 @@ namespace karto
     {
       Pose2 bestPose;
       Matrix3 covariance;
+      //粗匹配
       kt_double coarseResponse = m_pLoopScanMatcher->MatchScan(pScan, candidateChain,
                                                                bestPose, covariance, false, false);
 
@@ -1266,6 +1272,8 @@ namespace karto
         tmpScan.SetStateId(pScan->GetStateId());
         tmpScan.SetCorrectedPose(pScan->GetCorrectedPose());
         tmpScan.SetSensorPose(bestPose);  // This also updates OdometricPose.
+
+        // 这里的这句和上面 不同之处在于 MatchScan的最后一个参数， 这里使用了缺省值 true，因此进行细匹配
         kt_double fineResponse = m_pMapper->m_pSequentialScanMatcher->MatchScan(&tmpScan, candidateChain,
                                                                                 bestPose, covariance, false);
 
@@ -1283,6 +1291,8 @@ namespace karto
           m_pMapper->FireBeginLoopClosure("Closing loop...");
 
           pScan->SetSensorPose(bestPose);
+
+          //LinkChainToScan也就是加入约束的意思，等会要用来优化
           LinkChainToScan(candidateChain, pScan, bestPose, covariance);
           CorrectPoses();
 
@@ -1292,6 +1302,8 @@ namespace karto
         }
       }
 
+      //这里再使用 FindPossibleLoopClosure而不是 直接删除已经用过的，是因为前面位姿调整了，所以可能会有一些原来不是chain的现在可以成为chain了
+      //那也就是说 AddConstraint进行了优化操作
       candidateChain = FindPossibleLoopClosure(pScan, rSensorName, scanIndex);
     }
 
@@ -1365,12 +1377,19 @@ namespace karto
     }
   }
 
+  // chains 的概念
+  // 如果 pscan是234
+  //那么其中一个 chain 可能是  7-8-9-10-11， 另一个是56-57-58-59-60-61-62，还有 一个是  135-136-137
+  // 但 如果chain中包含了 234，那么就不对，这不应该是FindNearChains(pScan)的结果
+
   void MapperGraph::LinkNearChains(LocalizedRangeScan* pScan, Pose2Vector& rMeans, std::vector<Matrix3>& rCovariances)
   {
-    //查找相邻帧的操作只能理解前部分，也就是使用深度优先搜索的方法访问，后面还有一些判断条件，不明所以
+    //先使用深度优先搜索的方法访问，后面还有一些判断条件，保证搜索到的相邻帧组成的链和自己之间（按时间顺序访问）存在着不相邻的帧
     const std::vector<LocalizedRangeScanVector> nearChains = FindNearChains(pScan);
     const_forEach(std::vector<LocalizedRangeScanVector>, &nearChains)   //这是一个vector<vector<LocalizedRangeScan>>
     {
+      //这里的m_pLoopMatchMinimumChainSize 是闭环检测的参数
+      // 因为后面的闭环检测代码有说不让linkedscan参与闭环，那是因为 这些linkedscan已经在这里面加入过优化的约束了
       if (iter->size() < m_pMapper->m_pLoopMatchMinimumChainSize->GetValue())
       {
         continue;
@@ -1393,19 +1412,27 @@ namespace karto
                                     const Pose2& rMean, const Matrix3& rCovariance)
   {
     Pose2 pose = pScan->GetReferencePose(m_pMapper->m_pUseScanBarycenter->GetValue());
-    //找到runningScans中距离自己最近的那个
+    //找到相邻帧链距离自己最近的那个（帧链chain的概念在下面有）
     LocalizedRangeScan* pClosestScan = GetClosestScanToPose(rChain, pose);
     assert(pClosestScan != NULL);
 
     Pose2 closestScanPose = pClosestScan->GetReferencePose(m_pMapper->m_pUseScanBarycenter->GetValue());
 
     kt_double squaredDistance = pose.GetPosition().SquaredDistance(closestScanPose.GetPosition());
+    //这里又进行了一次距离的判断， 而且使用的是同样的参数，所以一定会 LinkScans
     if (squaredDistance < math::Square(m_pMapper->m_pLinkScanMaximumDistance->GetValue()) + KT_TOLERANCE)
     {
       LinkScans(pClosestScan, pScan, rMean, rCovariance);   //连接合适的runningScans中的距离最近的帧
     }
   }
-  //前面的操作懂了，但是后面的操作看不太懂，感觉像是多余的代码
+  //找到那些离pscan近，但和pscan之间又存在相距较远的帧（找的过程是按时间顺序来的）
+  //最终结果是 chains， 一个chain是时间连续的一些帧， 同时这个帧之中又不包含 pscan， 函数返回多个chain
+
+  // chains 的概念
+  // 如果 pscan是234
+  // 那么其中一个 chain 可能是  7-8-9-10-11， 另一个是56-57-58-59-60-61-62，还有 一个是  135-136-137
+  // 但 如果chain中包含了 234，那么就不对，这不应该是FindNearChains(pScan)的结果
+
   std::vector<LocalizedRangeScanVector> MapperGraph::FindNearChains(LocalizedRangeScan* pScan)
   {
     std::vector<LocalizedRangeScanVector> nearChains;
@@ -1415,7 +1442,7 @@ namespace karto
     // to keep track of which scans have been added to a chain
     LocalizedRangeScanVector processed;
     //m_pMapper->m_pLinkScanMaximumDistance->GetValue()值是10，是说要在10m内找linkscan
-    //通过深度优先算法实现了查找相邻pscan
+    //通过深度优先算法实现了查找相邻pscan， 利用每一个pscan来扩充成一个chain， chain要满足不包含pscan的条件
     const LocalizedRangeScanVector nearLinkedScans = FindNearLinkedScans(pScan,
                                                      m_pMapper->m_pLinkScanMaximumDistance->GetValue());
     const_forEach(LocalizedRangeScanVector, &nearLinkedScans)
@@ -1427,7 +1454,7 @@ namespace karto
         continue;
       }
 
-      // scan has already been processed, skip 
+      // scan has already been processed, skip //已经被添加过了，这里process就是被添加的意思，那么就二帧就会和第一帧相连
       if (find(processed.begin(), processed.end(), pNearScan) != processed.end())
       {
         continue;
@@ -1446,7 +1473,7 @@ namespace karto
                                                                                         candidateScanNum);
 
         // chain is invalid--contains scan being added
-        if (pCandidateScan == pScan)
+        if (pCandidateScan == pScan)           //这个看起来是不可能的，pscan不应该一定领先于 pnearscan吗？也不一定，不知道这个函数会被怎么调用
         {
           isValidChain = false;
         }
@@ -1461,6 +1488,7 @@ namespace karto
         }
         else
         {
+          //把临近帧前面的（按时间前后）得到的距离近的帧也连接
           break;
         }
       }
@@ -1474,7 +1502,7 @@ namespace karto
         LocalizedRangeScan* pCandidateScan = m_pMapper->m_pMapperSensorManager->GetScan(pNearScan->GetSensorName(),
                                                                                         candidateScanNum);
 
-        if (pCandidateScan == pScan)
+        if (pCandidateScan == pScan)   //找到了自己
         {
           isValidChain = false;
         }
@@ -1489,15 +1517,16 @@ namespace karto
         }
         else
         {
+          //把临近帧后面的（按时间前后）得到的距离近的帧也连接
           break;
         }
       }
 
-      if (isValidChain)
+      if (isValidChain)   //如果是真的，就要求 nearChain离自己近，但同时要求 nearChain和pscan之间存在较远的帧
       {
         // change list to vector
         LocalizedRangeScanVector tempChain;
-        std::copy(chain.begin(), chain.end(), std::inserter(tempChain, tempChain.begin()));
+        std::copy(chain.begin(), chain.end(), std::inserter(tempChain, tempChain.begin())); //chain一定是时间连续的
         // add chain to collection
         nearChains.push_back(tempChain);
       }
@@ -1571,8 +1600,10 @@ namespace karto
 
     // possible loop closure chain should not include close scans that have a
     // path of links to the scan of interest
+
+    // 知道合适的 帧 们 ，没有组成链
     const LocalizedRangeScanVector nearLinkedScans =
-          FindNearLinkedScans(pScan, m_pMapper->m_pLoopSearchMaximumDistance->GetValue());  //从所有帧中找离当前帧最近的帧，exclude these
+          FindNearLinkedScans(pScan, m_pMapper->m_pLoopSearchMaximumDistance->GetValue());  
 
     kt_int32u nScans = static_cast<kt_int32u>(m_pMapper->m_pMapperSensorManager->GetScans(rSensorName).size());
     for (; rStartNum < nScans; rStartNum++)
@@ -1586,6 +1617,8 @@ namespace karto
       if (squaredDistance < math::Square(m_pMapper->m_pLoopSearchMaximumDistance->GetValue()) + KT_TOLERANCE)  //从头开始找，如果帧距离当前帧位置在m_pLoopSearchMaximumDistance（4m）之内，就先记录一下
       {
         // a linked scan cannot be in the chain
+
+        // 为什么连接的scan不能作为 chain呢？？？？？？ 这是因为 LinkChainToScan已经添加过优化约束了
         if (find(nearLinkedScans.begin(), nearLinkedScans.end(), pCandidateScan) != nearLinkedScans.end())
         {
           chain.clear();
@@ -1595,7 +1628,7 @@ namespace karto
           chain.push_back(pCandidateScan);
         }
       }
-      else
+      else   //这里的  if else 是为了保证 chain的元素是 时间连续的
       {
         // return chain if it is long "enough"
         if (chain.size() >= m_pMapper->m_pLoopMatchMinimumChainSize->GetValue())  //4m之内的不是nearLinkedScans的帧如果大于10帧，就作为可能的chain
@@ -2198,7 +2231,8 @@ namespace karto
                                                     m_pCorrelationSearchSpaceSmearDeviation->GetValue(),
                                                     rangeThreshold);
       assert(m_pSequentialScanMatcher);
-
+      //m_pScanBufferSize   running_scan 数量长度，单位：个
+      //m_pScanBufferMaximumScanDistance  running_scan 地图上的长度，单位：m
       m_pMapperSensorManager = new MapperSensorManager(m_pScanBufferSize->GetValue(),
                                                        m_pScanBufferMaximumScanDistance->GetValue());
 
@@ -2289,11 +2323,13 @@ namespace karto
 
       if (m_pUseScanMatching->GetValue())
       {
-        // add to graph
+        // add to graph //仅仅是将当前帧的信息存储起来
         m_pGraph->AddVertex(pScan);
+
+        //边是具有约束关系的两个顶点，在 AddEdges中的操作有： 寻找可以连接的两个帧，计算scanMatch，同时保存scanMatch的结果到Graph之中，然后添加到SPA里面
         m_pGraph->AddEdges(pScan, covariance);
 
-        m_pMapperSensorManager->AddRunningScan(pScan);  // 这里面有RunningScan的维护
+        m_pMapperSensorManager->AddRunningScan(pScan);  // 这里面有RunningScan的维护，即删除不合适的头
 
         //进行回环检测的步骤
         if (m_pDoLoopClosing->GetValue())
